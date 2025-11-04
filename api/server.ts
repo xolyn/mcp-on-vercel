@@ -62,9 +62,9 @@ function runInSandbox(code: string, timeout: number = 5000): string {
     return String(result);
   } catch (error: any) {
     if (error.message?.includes("timeout")) {
-      return `⏱️ 执行超时（超过${timeout}ms）`;
+      return `Timeout: exceeded ${timeout}ms`;
     }
-    return `❌ 执行错误: ${error.message}`;
+    return `Error: ${error.message}`;
   }
 }
 
@@ -97,40 +97,93 @@ const handler = createMcpHandler((server) => {
   );
 
   server.tool(
-    "roll_dice",
-    "Rolls an N-sided die",
-    { sides: z.number().int().min(2) },
-    async ({ sides }) => {
-      const value = 1 + Math.floor(Math.random() * sides);
-      return {
-        content: [{ type: "text", text: value }],
-      };
-    },
-  );
-
-  server.tool(
     "get_weather",
-    "Get the current weather at a location",
+    "Get the current weather summarization and forecast by latitude and longitude",
     {
       latitude: z.number(),
       longitude: z.number(),
-      city: z.string(),
     },
-    async ({ latitude, longitude, city }) => {
+    async ({ latitude, longitude}) => {
       const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode,relativehumidity_2m&timezone=auto`,
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,rain_sum,precipitation_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant&current=temperature_2m,relative_humidity_2m,precipitation,rain,wind_speed_10m,wind_direction_10m&forecast_days=1`,
       );
       const weatherData = await response.json();
       return {
         content: [
           {
             type: "text",
-            text: `🌤️ Weather in ${city}: ${weatherData.current.temperature_2m}°C, Humidity: ${weatherData.current.relativehumidity_2m}%`,
+            text: JSON.stringify(weatherData, null, 2),
           },
         ],
       };
     },
   );
+
+  server.tool(
+    "get_exchange_rate",
+    "Get the exchange rate from one currency to another. Returns the rate as a number (e.g., 1 EUR = X CNY)",
+    {
+      from_currency: z
+        .string()
+        .toLowerCase()
+        .describe("Base currency code (e.g., 'eur', 'usd', 'cny')"),
+      to_currency: z
+        .string()
+        .toLowerCase()
+        .describe("Target currency code (e.g., 'cny', 'usd', 'jpy')"),
+    },
+    async ({ from_currency, to_currency }) => {
+      try {
+        const response = await fetch(
+          `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${from_currency}.json`,
+        );
+        
+        if (!response.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Unable to fetch exchange rate for ${from_currency}`,
+              },
+            ],
+          };
+        }
+
+        const data = await response.json();
+        const rate = data[from_currency]?.[to_currency];
+
+        if (rate === undefined) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Exchange rate from ${from_currency} to ${to_currency} not found`,
+              },
+            ],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: String(rate),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error.message}`,
+            },
+          ],
+        };
+      }
+    },
+  );
 });
 
 export { handler as GET, handler as POST, handler as DELETE };
+
